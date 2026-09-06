@@ -96,7 +96,23 @@ def verify():
     if not row:
         return jsonify({'valid': False, 'reason': 'Key desactivada o no existe'})
 
-    return jsonify({'valid': True, 'reason': 'OK'})
+    # Calcular tiempo restante
+    expiry_int = int(expiry)
+    if expiry_int == 9999999999:
+        time_left = "Permanente"
+    else:
+        seconds_left = expiry_int - now
+        days = seconds_left // 86400
+        hours = (seconds_left % 86400) // 3600
+        minutes = (seconds_left % 3600) // 60
+        if days > 0:
+            time_left = f"{days}d {hours}h {minutes}m"
+        elif hours > 0:
+            time_left = f"{hours}h {minutes}m"
+        else:
+            time_left = f"{minutes}m"
+
+    return jsonify({'valid': True, 'reason': 'OK', 'time_left': time_left})
 
 @app.route('/panel/keys', methods=['POST'])
 def panel_keys():
