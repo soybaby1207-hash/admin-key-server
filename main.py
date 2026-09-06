@@ -16,6 +16,8 @@ PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "miguel_fk1_")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
+GENERATOR_HTML = open("generator.html").read() if os.path.exists("generator.html") else "<h1>No found</h1>"
+
 def sb_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -52,15 +54,13 @@ def simple_hash(text):
 def random_part():
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
-GENERATOR_HTML = """ + repr(html) + """
-
 @app.route("/")
 def index():
     return "Admin Key Server funcionando ✅"
 
 @app.route("/generator")
 def generator():
-    return render_template_string(GENERATOR_HTML)
+    return GENERATOR_HTML
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -91,8 +91,7 @@ def verify():
         return jsonify({"valid": False, "reason": "Key invalida"})
     expiry = parts[2]
     signature = parts[3]
-    expected_sig = simple_hash(expiry)
-    if signature != expected_sig:
+    if signature != simple_hash(expiry):
         return jsonify({"valid": False, "reason": "Key invalida"})
     now = int(time.time())
     if int(expiry) != 9999999999 and now > int(expiry):
