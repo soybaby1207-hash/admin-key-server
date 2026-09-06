@@ -14,7 +14,6 @@ SECRET = os.environ.get("SECRET_KEY", "MiClaveSecreta123")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "soybaby12071207")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "miguel_fk1_")
 
-# Base de datos
 def get_db():
     conn = sqlite3.connect('keys.db')
     conn.row_factory = sqlite3.Row
@@ -52,19 +51,27 @@ def generate():
     data = request.get_json()
     if data.get('password') != ADMIN_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
+
     duration = int(data.get('duration', 3600))
-    username = data.get('username', 'ANY').upper()
+    username = data.get('username', '').strip().upper()
+
+    if not username:
+        return jsonify({'success': False, 'error': 'El usuario es obligatorio'}), 400
+
     now = int(time.time())
     expiry = 9999999999 if duration == 0 else now + duration
-    signature = simple_hash(str(expiry) + username)
+    signature = simple_hash(str(expiry))
     key = f"ADMIN-{random_part()}-{expiry}-{signature}"
     expiry_readable = "Permanente" if duration == 0 else time.strftime('%d/%m/%Y %H:%M', time.localtime(expiry))
 
-    # Guardar en base de datos
     conn = get_db()
-    conn.execute('INSERT INTO keys (key, username, expiry, expiry_readable, created_at) VALUES (?, ?, ?, ?, ?)',
-                 (key, username, expiry, expiry_readable, now))
-    conn.commit()
+    try:
+        conn.execute('INSERT INTO keys (key, username, expiry, expiry_readable, created_at) VALUES (?, ?, ?, ?, ?)',
+                     (key, username, expiry, expiry_readable, now))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({'success': False, 'error': str(e)}), 500
     conn.close()
 
     return jsonify({'success': True, 'key': key, 'expiry': expiry_readable, 'username': username})
@@ -72,31 +79,39 @@ def generate():
 @app.route('/verify', methods=['POST'])
 def verify():
     data = request.get_json()
-    key = data.get('key', '')
-    username = data.get('username', '').upper()
+    key = data.get('key', '').strip()
+    username = data.get('username', '').strip().upper()
+
     parts = key.split('-')
     if len(parts) != 4 or parts[0] != 'ADMIN':
         return jsonify({'valid': False, 'reason': 'Key invalida'})
+
     expiry = parts[2]
     signature = parts[3]
+
+    # Verificar firma basica
+    expected_sig = simple_hash(expiry)
+    if signature != expected_sig:
+        return jsonify({'valid': False, 'reason': 'Key invalida'})
+
+    # Verificar expiracion
     now = int(time.time())
     if int(expiry) != 9999999999 and now > int(expiry):
         return jsonify({'valid': False, 'reason': 'Key expirada'})
 
-    # Verificar firma
-    sig_any = simple_hash(expiry + 'ANY')
-    sig_user = simple_hash(expiry + username)
-    if signature != sig_any and signature != sig_user:
-        return jsonify({'valid': False, 'reason': 'Key invalida'})
-
-    # Verificar que está activa en la base de datos
+    # Buscar en base de datos
     conn = get_db()
     row = conn.execute('SELECT * FROM keys WHERE key = ? AND active = 1', (key,)).fetchone()
     conn.close()
+
     if not row:
         return jsonify({'valid': False, 'reason': 'Key desactivada o no existe'})
 
-    # Calcular tiempo restante
+    # Verificar que el usuario coincide
+    if row['username'] != username:
+        return jsonify({'valid': False, 'reason': 'Usuario incorrecto'})
+
+    # Tiempo restante
     expiry_int = int(expiry)
     if expiry_int == 9999999999:
         time_left = "Permanente"
@@ -140,9 +155,8 @@ def panel_delete():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    key_id = data.get('id')
     conn = get_db()
-    conn.execute('DELETE FROM keys WHERE id = ?', (key_id,))
+    conn.execute('DELETE FROM keys WHERE id = ?', (data.get('id'),))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -152,14 +166,27 @@ def panel_toggle():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    key_id = data.get('id')
     conn = get_db()
-    row = conn.execute('SELECT active FROM keys WHERE id = ?', (key_id,)).fetchone()
+    row = conn.execute('SELECT active FROM keys WHERE id = ?', (data.get('id'),)).fetchone()
     new_active = 0 if row['active'] == 1 else 1
-    conn.execute('UPDATE keys SET active = ? WHERE id = ?', (new_active, key_id))
+    conn.execute('UPDATE keys SET active = ? WHERE id = ?', (new_active, data.get('id')))
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'active': new_active})
+
+@app.route('/panel/change_user', methods=['POST'])
+def panel_change_user():
+    data = request.get_json()
+    if data.get('password') != PANEL_PASSWORD:
+        return jsonify({'success': False, 'error': 'No autorizado'}), 403
+    new_username = data.get('username', '').strip().upper()
+    if not new_username:
+        return jsonify({'success': False, 'error': 'Usuario invalido'}), 400
+    conn = get_db()
+    conn.execute('UPDATE keys SET username = ? WHERE id = ?', (new_username, data.get('id')))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'username': new_username})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
