@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import hashlib
 import time
@@ -46,78 +46,64 @@ def sb_find_key(key):
     return data[0] if data else None
 
 def simple_hash(text):
-    combined = (SECRET + text).encode('utf-8')
+    combined = (SECRET + text).encode("utf-8")
     return hashlib.sha256(combined).hexdigest()[:8].upper()
 
 def random_part():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
-@app.route('/')
+GENERATOR_HTML = """ + repr(html) + """
+
+@app.route("/")
 def index():
-    return 'Admin Key Server funcionando ✅'
+    return "Admin Key Server funcionando ✅"
 
-@app.route('/generate', methods=['POST'])
+@app.route("/generator")
+def generator():
+    return render_template_string(GENERATOR_HTML)
+
+@app.route("/generate", methods=["POST"])
 def generate():
     data = request.get_json()
-    if data.get('password') != ADMIN_PASSWORD:
-        return jsonify({'success': False, 'error': 'No autorizado'}), 403
-
-    duration = int(data.get('duration', 3600))
-    username = data.get('username', '').strip().upper()
-
+    if data.get("password") != ADMIN_PASSWORD:
+        return jsonify({"success": False, "error": "No autorizado"}), 403
+    duration = int(data.get("duration", 3600))
+    username = data.get("username", "").strip().upper()
     if not username:
-        return jsonify({'success': False, 'error': 'El usuario es obligatorio'}), 400
-
+        return jsonify({"success": False, "error": "El usuario es obligatorio"}), 400
     now = int(time.time())
     expiry = 9999999999 if duration == 0 else now + duration
     signature = simple_hash(str(expiry))
     key = f"ADMIN-{random_part()}-{expiry}-{signature}"
-    expiry_readable = "Permanente" if duration == 0 else time.strftime('%d/%m/%Y %H:%M', time.localtime(expiry))
-
-    result = sb_insert({
-        "key": key,
-        "username": username,
-        "expiry": expiry,
-        "expiry_readable": expiry_readable,
-        "created_at": now,
-        "active": 1
-    })
-
+    expiry_readable = "Permanente" if duration == 0 else time.strftime("%d/%m/%Y %H:%M", time.localtime(expiry))
+    result = sb_insert({"key": key, "username": username, "expiry": expiry, "expiry_readable": expiry_readable, "created_at": now, "active": 1})
     if isinstance(result, list) and len(result) > 0:
-        return jsonify({'success': True, 'key': key, 'expiry': expiry_readable, 'username': username})
-    return jsonify({'success': False, 'error': 'Error guardando la key'}), 500
+        return jsonify({"success": True, "key": key, "expiry": expiry_readable, "username": username})
+    return jsonify({"success": False, "error": "Error guardando la key"}), 500
 
-@app.route('/verify', methods=['POST'])
+@app.route("/verify", methods=["POST"])
 def verify():
     data = request.get_json()
-    key = data.get('key', '').strip()
-    username = data.get('username', '').strip().upper()
-
-    parts = key.split('-')
-    if len(parts) != 4 or parts[0] != 'ADMIN':
-        return jsonify({'valid': False, 'reason': 'Key invalida'})
-
+    key = data.get("key", "").strip()
+    username = data.get("username", "").strip().upper()
+    parts = key.split("-")
+    if len(parts) != 4 or parts[0] != "ADMIN":
+        return jsonify({"valid": False, "reason": "Key invalida"})
     expiry = parts[2]
     signature = parts[3]
-
     expected_sig = simple_hash(expiry)
     if signature != expected_sig:
-        return jsonify({'valid': False, 'reason': 'Key invalida'})
-
+        return jsonify({"valid": False, "reason": "Key invalida"})
     now = int(time.time())
     if int(expiry) != 9999999999 and now > int(expiry):
-        return jsonify({'valid': False, 'reason': 'Key expirada'})
-
+        return jsonify({"valid": False, "reason": "Key expirada"})
     row = sb_find_key(key)
     if not row:
-        return jsonify({'valid': False, 'reason': 'Key no existe'})
-
-    if row['active'] != 1:
-        return jsonify({'valid': False, 'reason': 'Key desactivada'})
-
-    if row['username'] != username:
-        return jsonify({'valid': False, 'reason': 'Usuario incorrecto'})
-
+        return jsonify({"valid": False, "reason": "Key no existe"})
+    if row["active"] != 1:
+        return jsonify({"valid": False, "reason": "Key desactivada"})
+    if row["username"] != username:
+        return jsonify({"valid": False, "reason": "Usuario incorrecto"})
     expiry_int = int(expiry)
     if expiry_int == 9999999999:
         time_left = "Permanente"
@@ -132,64 +118,51 @@ def verify():
             time_left = f"{hours}h {minutes}m"
         else:
             time_left = f"{minutes}m"
+    return jsonify({"valid": True, "reason": "OK", "time_left": time_left})
 
-    return jsonify({'valid': True, 'reason': 'OK', 'time_left': time_left})
-
-@app.route('/panel/keys', methods=['POST'])
+@app.route("/panel/keys", methods=["POST"])
 def panel_keys():
     data = request.get_json()
-    if data.get('password') != PANEL_PASSWORD:
-        return jsonify({'success': False, 'error': 'No autorizado'}), 403
-
+    if data.get("password") != PANEL_PASSWORD:
+        return jsonify({"success": False, "error": "No autorizado"}), 403
     rows = sb_get()
     now = int(time.time())
     keys = []
     for row in rows:
-        keys.append({
-            'id': row['id'],
-            'key': row['key'],
-            'username': row['username'],
-            'expiry_readable': row['expiry_readable'],
-            'active': row['active'],
-            'expired': row['expiry'] != 9999999999 and now > row['expiry']
-        })
-    return jsonify({'success': True, 'keys': keys})
+        keys.append({"id": row["id"], "key": row["key"], "username": row["username"], "expiry_readable": row["expiry_readable"], "active": row["active"], "expired": row["expiry"] != 9999999999 and now > row["expiry"]})
+    return jsonify({"success": True, "keys": keys})
 
-@app.route('/panel/delete', methods=['POST'])
+@app.route("/panel/delete", methods=["POST"])
 def panel_delete():
     data = request.get_json()
-    if data.get('password') != PANEL_PASSWORD:
-        return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    sb_delete(data.get('id'))
-    return jsonify({'success': True})
+    if data.get("password") != PANEL_PASSWORD:
+        return jsonify({"success": False, "error": "No autorizado"}), 403
+    sb_delete(data.get("id"))
+    return jsonify({"success": True})
 
-@app.route('/panel/toggle', methods=['POST'])
+@app.route("/panel/toggle", methods=["POST"])
 def panel_toggle():
     data = request.get_json()
-    if data.get('password') != PANEL_PASSWORD:
-        return jsonify({'success': False, 'error': 'No autorizado'}), 403
-
+    if data.get("password") != PANEL_PASSWORD:
+        return jsonify({"success": False, "error": "No autorizado"}), 403
     rows = sb_get(f"id=eq.{data.get('id')}")
     if not rows:
-        return jsonify({'success': False, 'error': 'No encontrado'}), 404
+        return jsonify({"success": False, "error": "No encontrado"}), 404
+    new_active = 0 if rows[0]["active"] == 1 else 1
+    sb_update(data.get("id"), {"active": new_active})
+    return jsonify({"success": True, "active": new_active})
 
-    new_active = 0 if rows[0]['active'] == 1 else 1
-    sb_update(data.get('id'), {"active": new_active})
-    return jsonify({'success': True, 'active': new_active})
-
-@app.route('/panel/change_user', methods=['POST'])
+@app.route("/panel/change_user", methods=["POST"])
 def panel_change_user():
     data = request.get_json()
-    if data.get('password') != PANEL_PASSWORD:
-        return jsonify({'success': False, 'error': 'No autorizado'}), 403
-
-    new_username = data.get('username', '').strip().upper()
+    if data.get("password") != PANEL_PASSWORD:
+        return jsonify({"success": False, "error": "No autorizado"}), 403
+    new_username = data.get("username", "").strip().upper()
     if not new_username:
-        return jsonify({'success': False, 'error': 'Usuario invalido'}), 400
+        return jsonify({"success": False, "error": "Usuario invalido"}), 400
+    sb_update(data.get("id"), {"username": new_username})
+    return jsonify({"success": True, "username": new_username})
 
-    sb_update(data.get('id'), {"username": new_username})
-    return jsonify({'success': True, 'username': new_username})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
