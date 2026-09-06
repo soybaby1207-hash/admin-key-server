@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a14; font-family:'Segoe UI',sans-serif; color:white; min-height:100vh; }
+.tabs { display:flex; background:#0f0f1e; border-bottom:1px solid #1e1e3a; padding:0 20px; }
+.tab { padding:16px 28px; cursor:pointer; font-weight:700; font-size:13px; color:#4b5563; transition:all 0.2s; border-bottom:2px solid transparent; }
+.tab.active { color:#a78bfa; border-bottom:2px solid #7c3aed; }
+.tab:hover { color:#7c3aed; }
+.page { display:none; padding:32px; max-width:680px; margin:0 auto; }
+.page.active { display:block; }
+h2 { font-size:18px; color:#e2e8f0; margin-bottom:24px; font-weight:700; }
+.card { background:#0f0f1e; border:1px solid #1e1e3a; border-radius:14px; padding:24px; margin-bottom:16px; }
+label { display:block; font-size:10px; font-weight:700; color:#6d28d9; margin-bottom:6px; letter-spacing:1.5px; }
+select, input[type=text], input[type=password] {
+  width:100%; padding:11px 14px; background:#0a0a14; border:1px solid #1e1e3a;
+  border-radius:10px; color:white; font-size:13px; margin-bottom:16px; outline:none; transition:border 0.2s;
+}
+select:focus, input:focus { border-color:#7c3aed; }
+.required-badge { color:#ef4444; margin-left:4px; }
+button {
+  width:100%; padding:12px; background:linear-gradient(135deg,#7c3aed,#4f46e5);
+  border:none; border-radius:10px; color:white; font-size:13px; font-weight:700;
+  cursor:pointer; margin-bottom:12px; transition:opacity 0.2s;
+}
+button:hover { opacity:0.85; }
+.result { display:none; background:#0a0a14; border:1px solid #059669; border-radius:12px; padding:18px; margin-top:8px; }
+.result.visible { display:block; }
+.result-label { font-size:10px; color:#10b981; letter-spacing:1px; margin-bottom:8px; font-weight:700; }
+.key-box { font-family:monospace; font-size:13px; font-weight:700; word-break:break-all; background:#0f0f1e; padding:12px 14px; border-radius:8px; margin-bottom:10px; color:#a78bfa; border:1px solid #2d1b69; }
+.copy-btn { background:#059669; margin-bottom:0; }
+.copy-btn:hover { background:#047857; opacity:1; }
+.expiry-info { font-size:11px; color:#6b7280; margin-bottom:10px; }
+.error-msg { color:#ef4444; font-size:12px; margin-top:4px; display:none; padding:8px 12px; background:rgba(239,68,68,0.08); border-radius:8px; border:1px solid rgba(239,68,68,0.2); }
+/* Panel */
+.keys-table { width:100%; border-collapse:collapse; }
+.keys-table th { text-align:left; padding:10px 12px; font-size:10px; color:#6d28d9; border-bottom:1px solid #1e1e3a; letter-spacing:1px; font-weight:700; }
+.keys-table td { padding:12px; font-size:12px; border-bottom:1px solid #0f0f1e; vertical-align:middle; }
+.keys-table tr:hover td { background:#0f0f1e; }
+.badge { padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; }
+.badge-active { background:rgba(16,185,129,0.12); color:#10b981; }
+.badge-inactive { background:rgba(239,68,68,0.12); color:#ef4444; }
+.badge-expired { background:rgba(107,114,128,0.12); color:#6b7280; }
+.action-btn { padding:5px 10px; border-radius:7px; border:none; font-size:10px; font-weight:700; cursor:pointer; margin-right:3px; transition:opacity 0.2s; }
+.action-btn:hover { opacity:0.75; }
+.btn-delete { background:rgba(239,68,68,0.15); color:#ef4444; }
+.btn-toggle { background:rgba(251,191,36,0.15); color:#fbbf24; }
+.btn-user { background:rgba(99,102,241,0.15); color:#818cf8; }
+.empty-state { text-align:center; padding:40px; color:#374151; font-size:14px; }
+.key-cell { font-family:monospace; font-size:10px; color:#7c3aed; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+.key-cell:hover { color:#a78bfa; }
+.top-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.refresh-btn { width:auto; padding:8px 16px; margin:0; font-size:11px; background:#1e1e3a; }
+.refresh-btn:hover { background:#2d2d5a; opacity:1; }
+.count-text { color:#4b5563; font-size:12px; }
+/* Modal cambio usuario */
+.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center; }
+.modal-overlay.visible { display:flex; }
+.modal { background:#0f0f1e; border:1px solid #2d1b69; border-radius:16px; padding:28px; width:360px; }
+.modal h3 { color:#e2e8f0; font-size:15px; margin-bottom:20px; }
+.modal-btns { display:flex; gap:10px; }
+.modal-btns button { margin:0; }
+.btn-cancel { background:#1e1e3a; }
+.btn-cancel:hover { background:#2d2d5a; opacity:1; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('generator')">⚡ Generar Key</div>
+  <div class="tab" onclick="showTab('panel')">🔑 Gestionar Keys</div>
+</div>
+
+<!-- GENERATOR -->
+<div class="page active" id="page-generator">
+  <h2>Generar Key</h2>
+  <div class="card">
+    <label>URL DEL SERVIDOR</label>
+    <input type="text" id="serverUrl" placeholder="https://admin-key-server-1.onrender.com" value="https://admin-key-server-1.onrender.com">
+    <label>CONTRASEÑA DE ADMIN</label>
+    <input type="password" id="adminPassword" placeholder="Contraseña de admin...">
+    <label>USUARIO ROBLOX <span class="required-badge">*obligatorio</span></label>
+    <input type="text" id="username" placeholder="Nombre exacto de Roblox (ej: soybaby1207)">
+    <label>DURACIÓN</label>
+    <select id="duration">
+      <option value="3600">1 Hora</option>
+      <option value="10800">3 Horas</option>
+      <option value="21600">6 Horas</option>
+      <option value="43200">12 Horas</option>
+      <option value="86400">1 Día</option>
+      <option value="259200">3 Días</option>
+      <option value="604800">7 Días</option>
+      <option value="2592000">30 Días</option>
+      <option value="0">Permanente</option>
+    </select>
+    <button onclick="generateKey()">🔑 Generar Key</button>
+    <div class="error-msg" id="gen-error"></div>
+    <div class="result" id="result">
+      <div class="result-label">✅ KEY GENERADA</div>
+      <div class="expiry-info" id="expiryInfo"></div>
+      <div class="key-box" id="keyText"></div>
+      <button class="copy-btn" onclick="copyKey()">📋 Copiar Key</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL -->
+<div class="page" id="page-panel">
+  <h2>Gestionar Keys</h2>
+  <div id="panel-login" class="card">
+    <label>CONTRASEÑA DEL PANEL</label>
+    <input type="password" id="panelPassword" placeholder="Contraseña del panel...">
+    <button onclick="loginPanel()">🔓 Entrar al Panel</button>
+    <div class="error-msg" id="panel-error"></div>
+  </div>
+  <div id="panel-content" style="display:none">
+    <div class="top-bar">
+      <span class="count-text" id="keys-count"></span>
+      <button class="refresh-btn" onclick="loadKeys()">🔄 Actualizar</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div id="keys-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CAMBIO USUARIO -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3>🔄 Cambiar usuario de la Key</h3>
+    <label>NUEVO USUARIO ROBLOX</label>
+    <input type="text" id="modal-username" placeholder="Nuevo nombre de usuario...">
+    <div class="error-msg" id="modal-error"></div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button onclick="confirmChangeUser()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let panelPass = '';
+let serverUrl = 'https://admin-key-server-1.onrender.com';
+let currentEditId = null;
+
+function showTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['generator','panel'][i] === tab));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + tab).classList.add('active');
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = '❌ ' + msg;
+  el.style.display = 'block';
+}
+
+function hideError(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+async function generateKey() {
+  serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  const password = document.getElementById('adminPassword').value.trim();
+  const username = document.getElementById('username').value.trim();
+  const duration = parseInt(document.getElementById('duration').value);
+  hideError('gen-error');
+
+  if (!serverUrl) { showError('gen-error', 'Introduce la URL del servidor.'); return; }
+  if (!password) { showError('gen-error', 'Introduce la contraseña.'); return; }
+  if (!username) { showError('gen-error', 'El nombre de usuario es obligatorio.'); return; }
+
+  try {
+    const res = await fetch(`${serverUrl}/generate`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password, username, duration})
+    });
+    const data = await res.json();
+    if (!data.success) { showError('gen-error', data.error || 'Error'); return; }
+    document.getElementById('keyText').textContent = data.key;
+    document.getElementById('expiryInfo').textContent = `👤 ${data.username}  •  ⏰ Expira: ${data.expiry}`;
+    document.getElementById('result').classList.add('visible');
+  } catch(e) { showError('gen-error', 'No se pudo conectar al servidor.'); }
+}
+
+function copyKey() {
+  navigator.clipboard.writeText(document.getElementById('keyText').textContent).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✅ Copiada!';
+    setTimeout(() => btn.textContent = '📋 Copiar Key', 2000);
+  });
+}
+
+async function loginPanel() {
+  serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '') || 'https://admin-key-server-1.onrender.com';
+  panelPass = document.getElementById('panelPassword').value.trim();
+  hideError('panel-error');
+  if (!panelPass) { showError('panel-error', 'Introduce la contraseña.'); return; }
+  try {
+    const res = await fetch(`${serverUrl}/panel/keys`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password: panelPass})
+    });
+    const data = await res.json();
+    if (!data.success) { showError('panel-error', 'Contraseña incorrecta'); return; }
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-content').style.display = 'block';
+    renderKeys(data.keys);
+  } catch(e) { showError('panel-error', 'No se pudo conectar al servidor.'); }
+}
+
+async function loadKeys() {
+  try {
+    const res = await fetch(`${serverUrl}/panel/keys`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password: panelPass})
+    });
+    const data = await res.json();
+    if (data.success) renderKeys(data.keys);
+  } catch(e) {}
+}
+
+function renderKeys(keys) {
+  document.getElementById('keys-count').textContent = `${keys.length} keys en total`;
+  const container = document.getElementById('keys-container');
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="empty-state">No hay keys generadas todavía</div>';
+    return;
+  }
+  let html = `<table class="keys-table">
+    <thead><tr>
+      <th>KEY</th><th>USUARIO</th><th>EXPIRA</th><th>ESTADO</th><th>ACCIONES</th>
+    </tr></thead><tbody>`;
+  for (const k of keys) {
+    let badge = k.expired ? '<span class="badge badge-expired">Expirada</span>'
+               : k.active ? '<span class="badge badge-active">Activa</span>'
+               : '<span class="badge badge-inactive">Desactivada</span>';
+    html += `<tr>
+      <td class="key-cell" title="${k.key}" onclick="navigator.clipboard.writeText('${k.key}')">${k.key}</td>
+      <td><strong>${k.username}</strong></td>
+      <td>${k.expiry_readable}</td>
+      <td>${badge}</td>
+      <td>
+        <button class="action-btn btn-user" onclick="openModal(${k.id}, '${k.username}')">👤 Usuario</button>
+        <button class="action-btn btn-toggle" onclick="toggleKey(${k.id})">${k.active ? 'Desactivar' : 'Activar'}</button>
+        <button class="action-btn btn-delete" onclick="deleteKey(${k.id})">🗑️</button>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function openModal(id, username) {
+  currentEditId = id;
+  document.getElementById('modal-username').value = username;
+  document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('visible');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('visible');
+  currentEditId = null;
+}
+
+async function confirmChangeUser() {
+  const newUser = document.getElementById('modal-username').value.trim();
+  if (!newUser) { showError('modal-error', 'Introduce un nombre de usuario.'); return; }
+  try {
+    const res = await fetch(`${serverUrl}/panel/change_user`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password: panelPass, id: currentEditId, username: newUser})
+    });
+    const data = await res.json();
+    if (!data.success) { showError('modal-error', data.error || 'Error'); return; }
+    closeModal();
+    loadKeys();
+  } catch(e) { showError('modal-error', 'Error de conexión.'); }
+}
+
+async function deleteKey(id) {
+  if (!confirm('¿Eliminar esta key permanentemente?')) return;
+  await fetch(`${serverUrl}/panel/delete`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password: panelPass, id})
+  });
+  loadKeys();
+}
+
+async function toggleKey(id) {
+  await fetch(`${serverUrl}/panel/toggle`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password: panelPass, id})
+  });
+  loadKeys();
+}
+
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+</body>
+</html>
