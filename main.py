@@ -5,7 +5,7 @@ import time
 import random
 import string
 import os
-import sqlite3
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -13,27 +13,37 @@ CORS(app)
 SECRET = os.environ.get("SECRET_KEY", "MiClaveSecreta123")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "soybaby12071207")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "miguel_fk1_")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-def get_db():
-    conn = sqlite3.connect('keys.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+def sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
 
-def init_db():
-    conn = get_db()
-    conn.execute('''CREATE TABLE IF NOT EXISTS keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT UNIQUE NOT NULL,
-        username TEXT NOT NULL,
-        expiry INTEGER NOT NULL,
-        expiry_readable TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        active INTEGER DEFAULT 1
-    )''')
-    conn.commit()
-    conn.close()
+def sb_get(filters=""):
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/keys?{filters}&order=created_at.desc", headers=sb_headers())
+    return r.json()
 
-init_db()
+def sb_insert(data):
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/keys", headers=sb_headers(), json=data)
+    return r.json()
+
+def sb_update(id, data):
+    r = requests.patch(f"{SUPABASE_URL}/rest/v1/keys?id=eq.{id}", headers=sb_headers(), json=data)
+    return r
+
+def sb_delete(id):
+    r = requests.delete(f"{SUPABASE_URL}/rest/v1/keys?id=eq.{id}", headers=sb_headers())
+    return r
+
+def sb_find_key(key):
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/keys?key=eq.{key}", headers=sb_headers())
+    data = r.json()
+    return data[0] if data else None
 
 def simple_hash(text):
     combined = (SECRET + text).encode('utf-8')
@@ -64,17 +74,18 @@ def generate():
     key = f"ADMIN-{random_part()}-{expiry}-{signature}"
     expiry_readable = "Permanente" if duration == 0 else time.strftime('%d/%m/%Y %H:%M', time.localtime(expiry))
 
-    conn = get_db()
-    try:
-        conn.execute('INSERT INTO keys (key, username, expiry, expiry_readable, created_at) VALUES (?, ?, ?, ?, ?)',
-                     (key, username, expiry, expiry_readable, now))
-        conn.commit()
-    except Exception as e:
-        conn.close()
-        return jsonify({'success': False, 'error': str(e)}), 500
-    conn.close()
+    result = sb_insert({
+        "key": key,
+        "username": username,
+        "expiry": expiry,
+        "expiry_readable": expiry_readable,
+        "created_at": now,
+        "active": 1
+    })
 
-    return jsonify({'success': True, 'key': key, 'expiry': expiry_readable, 'username': username})
+    if isinstance(result, list) and len(result) > 0:
+        return jsonify({'success': True, 'key': key, 'expiry': expiry_readable, 'username': username})
+    return jsonify({'success': False, 'error': 'Error guardando la key'}), 500
 
 @app.route('/verify', methods=['POST'])
 def verify():
@@ -89,29 +100,24 @@ def verify():
     expiry = parts[2]
     signature = parts[3]
 
-    # Verificar firma basica
     expected_sig = simple_hash(expiry)
     if signature != expected_sig:
         return jsonify({'valid': False, 'reason': 'Key invalida'})
 
-    # Verificar expiracion
     now = int(time.time())
     if int(expiry) != 9999999999 and now > int(expiry):
         return jsonify({'valid': False, 'reason': 'Key expirada'})
 
-    # Buscar en base de datos
-    conn = get_db()
-    row = conn.execute('SELECT * FROM keys WHERE key = ? AND active = 1', (key,)).fetchone()
-    conn.close()
-
+    row = sb_find_key(key)
     if not row:
-        return jsonify({'valid': False, 'reason': 'Key desactivada o no existe'})
+        return jsonify({'valid': False, 'reason': 'Key no existe'})
 
-    # Verificar que el usuario coincide
+    if row['active'] != 1:
+        return jsonify({'valid': False, 'reason': 'Key desactivada'})
+
     if row['username'] != username:
         return jsonify({'valid': False, 'reason': 'Usuario incorrecto'})
 
-    # Tiempo restante
     expiry_int = int(expiry)
     if expiry_int == 9999999999:
         time_left = "Permanente"
@@ -134,11 +140,10 @@ def panel_keys():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    conn = get_db()
-    rows = conn.execute('SELECT * FROM keys ORDER BY created_at DESC').fetchall()
-    conn.close()
-    keys = []
+
+    rows = sb_get()
     now = int(time.time())
+    keys = []
     for row in rows:
         keys.append({
             'id': row['id'],
@@ -155,10 +160,7 @@ def panel_delete():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    conn = get_db()
-    conn.execute('DELETE FROM keys WHERE id = ?', (data.get('id'),))
-    conn.commit()
-    conn.close()
+    sb_delete(data.get('id'))
     return jsonify({'success': True})
 
 @app.route('/panel/toggle', methods=['POST'])
@@ -166,12 +168,13 @@ def panel_toggle():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
-    conn = get_db()
-    row = conn.execute('SELECT active FROM keys WHERE id = ?', (data.get('id'),)).fetchone()
-    new_active = 0 if row['active'] == 1 else 1
-    conn.execute('UPDATE keys SET active = ? WHERE id = ?', (new_active, data.get('id')))
-    conn.commit()
-    conn.close()
+
+    rows = sb_get(f"id=eq.{data.get('id')}")
+    if not rows:
+        return jsonify({'success': False, 'error': 'No encontrado'}), 404
+
+    new_active = 0 if rows[0]['active'] == 1 else 1
+    sb_update(data.get('id'), {"active": new_active})
     return jsonify({'success': True, 'active': new_active})
 
 @app.route('/panel/change_user', methods=['POST'])
@@ -179,13 +182,12 @@ def panel_change_user():
     data = request.get_json()
     if data.get('password') != PANEL_PASSWORD:
         return jsonify({'success': False, 'error': 'No autorizado'}), 403
+
     new_username = data.get('username', '').strip().upper()
     if not new_username:
         return jsonify({'success': False, 'error': 'Usuario invalido'}), 400
-    conn = get_db()
-    conn.execute('UPDATE keys SET username = ? WHERE id = ?', (new_username, data.get('id')))
-    conn.commit()
-    conn.close()
+
+    sb_update(data.get('id'), {"username": new_username})
     return jsonify({'success': True, 'username': new_username})
 
 if __name__ == '__main__':
