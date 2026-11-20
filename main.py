@@ -16,7 +16,7 @@ CORS(app, origins=ALLOWED_ORIGINS)
 # Estas variables DEBEN configurarse en Render (Environment). Sin valores por defecto.
 SECRET = os.environ["SECRET_KEY"]
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
-PANEL_PASSWORD = os.environ["PANEL_PASSWORD"]
+PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", os.environ.get("ADMIN_PASSWORD", ""))
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
